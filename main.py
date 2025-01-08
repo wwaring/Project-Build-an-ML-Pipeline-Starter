@@ -100,6 +100,7 @@ def go(config: DictConfig):
             ### Troubleshooting : Print parsed config
             print("Parsed config:", config)
             print("Random forest config:", config["modeling"]["random_forest"])
+            print("Type of random forest config:", type(config["modeling"]["random_forest"]))
 
             # NOTE: we need to serialize the random forest configuration into JSON
             # Troubleshoot: Ensure config is JSON-serializable
