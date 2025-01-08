@@ -17,7 +17,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OrdinalEncoder, FunctionTransformer
+from sklearn.preprocessing import OrdinalEncoder, FunctionTransformer, OneHotEncoder
 
 import wandb
 from sklearn.ensemble import RandomForestRegressor
@@ -43,9 +43,18 @@ def go(args):
     run = wandb.init(job_type="train_random_forest")
     run.config.update(args)
 
+    # Troubleshooting: Random Forest Configuration
+    if not os.path.exists(args.rf_config):
+        raise FileNotFoundError(f"Random Forest config file '{args.rf_config}' not found.")
     # Get the Random Forest configuration and update W&B
     with open(args.rf_config) as fp:
         rf_config = json.load(fp)
+
+    required_rf_keys = ["n_estimators", "max_depth", "min_samples_split", "min_samples_leaf"]
+    for key in required_rf_keys:
+        if key not in rf_config:
+            raise ValueError(f"Missing key '{key}' in Random Forest configuration.")
+
     run.config.update(rf_config)
 
     # Fix the random seed for the Random Forest, so we get reproducible results
@@ -56,24 +65,43 @@ def go(args):
     trainval_local_path = run.use_artifact(args.trainval_artifact).file()
    
     X = pd.read_csv(trainval_local_path)
+
+    logger.info(f"Dataset Info:\n{X.info()}")
+    logger.info(f"First few rows of the dataset:\n{X.head()}")
+
+    # Troubleshooting: Handle object data types
+    for col in X.select_dtypes(include=['object']).columns:
+        X[col] = X[col].astype(str)
+
+    if args.stratify_by not in X.columns:
+        logger.warning(f"Stratify column '{args.stratify_by}' not found in dataset. Stratification will be skipped.")
+        args.stratify_by = None
+
     y = X.pop("price")  # this removes the column "price" from X and puts it into y
+    if y.isnull().any():
+        logger.warning("Missing values detected in target column 'price'. Imputing with the median.")
+        y.fillna(y.median(), inplace=True)
 
     logger.info(f"Minimum price: {y.min()}, Maximum price: {y.max()}")
 
     X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=args.val_size, stratify=X[args.stratify_by], random_state=args.random_seed
+        X, y, test_size=args.val_size, stratify=X[args.stratify_by] if args.stratify_by else None, random_state=args.random_seed
     )
 
     logger.info("Preparing sklearn pipeline")
 
     sk_pipe, processed_features = get_inference_pipeline(rf_config, args.max_tfidf_features)
 
+    # Troubleshooting:  Debug preprocessing pipeline
+    X_preprocessed = sk_pipe.named_steps['preprocessor'].fit_transform(X_train)
+    logger.info(f"Preprocessed features shape: {X_preprocessed.shape}")
+
     # Then fit it to the X_train, y_train data
     logger.info("Fitting")
 
     ######################################
     # Fit the pipeline sk_pipe by calling the .fit method on X_train and y_train
-    # YOUR CODE HERE
+    sk_pipe.fit(X_train, y_train)
     ######################################
 
     # Compute r2 and MAE
@@ -95,9 +123,16 @@ def go(args):
     ######################################
     # Save the sk_pipe pipeline as a mlflow.sklearn model in the directory "random_forest_dir"
     # HINT: use mlflow.sklearn.save_model
-    signature = mlflow.models.infer_signature(X_val, y_pred)
+    # Validation included for troubleshooting
+    try:
+        signature = mlflow.models.infer_signature(X_val, y_pred)
+    except Exception as e:
+        logger.error(f"Error inferring MLflow signature: {e}")
+        raise
+
     mlflow.sklearn.save_model(
-        # YOUR CODE HERE
+        sk_pipe,
+        path="random_forest_dir",
         signature = signature,
         input_example = X_train.iloc[:5]
     )
@@ -121,7 +156,7 @@ def go(args):
     # Here we save variable r_squared under the "r2" key
     run.summary['r2'] = r_squared
     # Now save the variable mae under the key "mae".
-    # YOUR CODE HERE
+    run.summary["mae"] = mae
     ######################################
 
     # Upload to W&B the feture importance visualization
@@ -164,7 +199,8 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     # 1 - A SimpleImputer(strategy="most_frequent") to impute missing values
     # 2 - A OneHotEncoder() step to encode the variable
     non_ordinal_categorical_preproc = make_pipeline(
-        # YOUR CODE HERE
+        SimpleImputer(strategy="most_frequent"), 
+        OneHotEncoder()
     )
     ######################################
 
@@ -227,7 +263,8 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
 
     sk_pipe = Pipeline(
         steps =[
-        # YOUR CODE HERE
+        ("preprocessor", preprocessor),
+        ("random_forest", random_forest)
         ]
     )
 
