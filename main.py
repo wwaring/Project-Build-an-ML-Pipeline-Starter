@@ -5,7 +5,7 @@ import tempfile
 import os
 import wandb
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 _steps = [
     "download",
@@ -102,6 +102,8 @@ def go(config: DictConfig):
             print("Random forest config:", config["modeling"]["random_forest"])
 
             # NOTE: we need to serialize the random forest configuration into JSON
+            # Troubleshoot: Ensure config is JSON-serializable
+            config["modeling"]["random_forest"] = OmegaConf.to_container(config["modeling"]["random_forest"], resolve=True)
             rf_config = os.path.abspath("rf_config.json")
             with open(rf_config, "w+") as fp:
                 json.dump(dict(config["modeling"]["random_forest"].items()), fp)  # DO NOT TOUCH
