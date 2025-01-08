@@ -1,4 +1,7 @@
-###  W&B Link:
+### GitHub Link:
+[https://github.com/wwaring/Project-Build-an-ML-Pipeline-Starter.git]
+
+### W&B Link:
 [https://wandb.ai/wwaring-n-a/nyc_airbnb/overview]
  
 # Build an ML Pipeline for Short-Term Rental Prices in NYC
